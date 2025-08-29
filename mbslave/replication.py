@@ -622,6 +622,15 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
     if args.create_database:
         create_database(config)
 
+    run_script('mbslave pre-import')
+
+    if not args.empty:
+        run_script('mbslave auto-import')
+
+    run_script('mbslave post-import')
+
+# Creates the base schemas and tables. Run this before importing bulk data
+def mbslave_pre_import_main(config: Config, args: argparse.Namespace) -> None:
     create_schemas(config)
 
     # https://github.com/metabrainz/musicbrainz-server/blob/master/admin/InitDb.pl#L254
@@ -630,7 +639,6 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
     run_sql_script('CreateSearchConfiguration.sql', superuser=True)
 
     sql_scripts = [
-
         # types
         ('musicbrainz', 'CreateCollations.sql'),
         ('musicbrainz', 'CreateTypes.sql'),
@@ -642,7 +650,6 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
         ('statistics', 'statistics/CreateTables.sql'),
         ('documentation', 'documentation/CreateTables.sql'),
         ('wikidocs', 'wikidocs/CreateTables.sql'),
-
     ]
 
     for schema, sql_script in sql_scripts:
@@ -650,11 +657,9 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
             continue
         run_sql_script(sql_script)
 
-    if not args.empty:
-        run_script('mbslave auto-import')
-
+# Creates primary keys, indices, functions, etc. Run this after the bulk data is imported.
+def mbslave_post_import_main(config: Config, args: argparse.Namespace) -> None:
     sql_scripts = [
-
         # primary keys
         ('musicbrainz', 'CreatePrimaryKeys.sql'),
         ('cover_art_archive', 'caa/CreatePrimaryKeys.sql'),
@@ -687,14 +692,12 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
         # replication
         ('musicbrainz', 'ReplicationSetup.sql'),
         ('dbmirror2', 'dbmirror2/ReplicationSetup.sql'),
-
     ]
 
     for schema, sql_script in sql_scripts:
         if schema in config.schemas.ignored_schemas:
             continue
         run_sql_script(sql_script)
-
 
 def mbslave_psql_main(config: Config, args: argparse.Namespace) -> None:
     command = ['psql'] + config.database.create_psql_args(superuser=args.superuser, no_db=args.no_db)
@@ -769,6 +772,12 @@ def main():
         default='http://ftp.musicbrainz.org/pub/musicbrainz/data/fullexport/',
     )
     parser_auto_import.set_defaults(func=mbslave_auto_import_main)
+
+    parser_pre_import = subparsers.add_parser('pre-import')
+    parser_pre_import.set_defaults(func=mbslave_pre_import_main)
+
+    parser_post_import = subparsers.add_parser('post-import')
+    parser_post_import.set_defaults(func=mbslave_post_import_main)
 
     parser_sync = subparsers.add_parser('sync')
     parser_sync.add_argument('-r', '--keep-running', dest='keep_running', action='store_true',
