@@ -740,10 +740,8 @@ def mbslave_psql_main(config: Config, args: argparse.Namespace) -> None:
     command = ['psql'] + config.database.create_psql_args(superuser=args.superuser, no_db=args.no_db)
 
     environ = os.environ.copy()
-    print(args.public)
     if not args.public:
         schema = config.schemas.name(args.schema)
-        print(schema)
         environ['PGOPTIONS'] = '-c search_path=%s,public' % schema
 
     if args.superuser:
