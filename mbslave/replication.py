@@ -353,12 +353,44 @@ class PacketImporter(object):
     def load_pending_data(self, fp):
         cursor = self._db.cursor()
         cursor.execute('TRUNCATE dbmirror2.pending_data')
-        cursor.copy_expert('COPY dbmirror2.pending_data FROM STDIN', fp)
+        
+        # Filter out data from ignored schemas
+        filtered_lines = []
+        for line in fp:
+            if isinstance(line, bytes):
+                line = line.decode('utf-8')
+            parts = line.strip().split('\t')
+            if len(parts) > 2:
+                tablename = parts[1]
+                schema, table = parse_name(self._config, tablename)
+                if schema in self._ignored_schemas or table in self._ignored_tables:
+                    continue
+            filtered_lines.append(line)
+        
+        from io import StringIO
+        filtered_fp = StringIO(''.join(filtered_lines))
+        cursor.copy_expert('COPY dbmirror2.pending_data FROM STDIN', filtered_fp)
 
     def load_pending_keys(self, fp):
         cursor = self._db.cursor()
         cursor.execute('TRUNCATE dbmirror2.pending_keys')
-        cursor.copy_expert('COPY dbmirror2.pending_keys FROM STDIN', fp)
+        
+        # Filter out keys from ignored schemas
+        filtered_lines = []
+        for line in fp:
+            if isinstance(line, bytes):
+                line = line.decode('utf-8')
+            parts = line.strip().split('\t')
+            if len(parts) > 0:
+                tablename = parts[0]
+                schema, table = parse_name(self._config, tablename)
+                if schema in self._ignored_schemas or table in self._ignored_tables:
+                    continue
+            filtered_lines.append(line)
+        
+        from io import StringIO
+        filtered_fp = StringIO(''.join(filtered_lines))
+        cursor.copy_expert('COPY dbmirror2.pending_keys FROM STDIN', filtered_fp)
 
     def process(self):
         cursor = self._db.cursor()
@@ -629,6 +661,11 @@ def mbslave_init_main(config: Config, args: argparse.Namespace) -> None:
 
     run_script('mbslave post-import')
 
+# Manually trigger create user
+def mbslave_create_user_and_db(config: Config, args: argparse.Namespace) -> None:
+    create_user(config)
+    create_database(config)
+
 # Creates the base schemas and tables. Run this before importing bulk data
 def mbslave_pre_import_main(config: Config, args: argparse.Namespace) -> None:
     create_schemas(config)
@@ -778,6 +815,9 @@ def main():
 
     parser_post_import = subparsers.add_parser('post-import')
     parser_post_import.set_defaults(func=mbslave_post_import_main)
+
+    parser_create_user = subparsers.add_parser('create-user-and-db')
+    parser_create_user.set_defaults(func=mbslave_create_user_and_db)
 
     parser_sync = subparsers.add_parser('sync')
     parser_sync.add_argument('-r', '--keep-running', dest='keep_running', action='store_true',
