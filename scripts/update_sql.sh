@@ -8,7 +8,8 @@ rm -rf /tmp/mbserver-clone
 mkdir /tmp/mbserver-clone
 
 curl -L -o /tmp/mbserver-clone/master.tar.gz https://github.com/metabrainz/musicbrainz-server/archive/master.tar.gz
-tar -x -f /tmp/mbserver-clone/master.tar.gz --strip-components=2 --wildcards 'musicbrainz-server-master/admin/sql/*'
+tar -x -f /tmp/mbserver-clone/master.tar.gz -C /tmp/mbserver-clone
+mv /tmp/mbserver-clone/musicbrainz-server-master/admin/sql .
 rm -rf /tmp/mbserver-clone
 
 echo '\set ON_ERROR_STOP 1' >sql/CreateCollateIndexes.sql
