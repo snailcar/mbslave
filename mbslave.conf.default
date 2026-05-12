@@ -11,6 +11,12 @@ admin_user=postgres
 base_url=https://metabrainz.org/api/musicbrainz/
 # token=XXX
 
+[sync]
+# number of times to retry a failed packet download (default: 2)
+retry_count=2
+# seconds to wait between retries (default: 30)
+retry_delay=30
+
 [tables]
 ignore=
 

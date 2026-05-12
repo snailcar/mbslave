@@ -167,6 +167,23 @@ class MusicBrainzConfig(object):
         read_env_item(self, 'token', prefix + 'MUSICBRAINZ_TOKEN')
 
 
+class SyncConfig(object):
+
+    def __init__(self):
+        self.retry_count = 3
+        self.retry_delay = 30
+
+    def read(self, parser, section):
+        if parser.has_option(section, 'retry_count'):
+            self.retry_count = parser.getint(section, 'retry_count')
+        if parser.has_option(section, 'retry_delay'):
+            self.retry_delay = parser.getint(section, 'retry_delay')
+
+    def read_env(self, prefix):
+        read_env_item(self, 'retry_count', prefix + 'SYNC_RETRY_COUNT', convert=int)
+        read_env_item(self, 'retry_delay', prefix + 'SYNC_RETRY_DELAY', convert=int)
+
+
 class Config(object):
 
     def __init__(self, paths):
@@ -181,6 +198,7 @@ class Config(object):
         self.musicbrainz = MusicBrainzConfig()
         self.tables = TablesConfig()
         self.schemas = SchemasConfig()
+        self.sync = SyncConfig()
 
         if self.cfg.has_section('database'):
             self.database.read(self.cfg, 'database')
@@ -200,10 +218,14 @@ class Config(object):
         if self.cfg.has_section('schemas'):
             self.schemas.read(self.cfg, 'schemas')
 
+        if self.cfg.has_section('sync'):
+            self.sync.read(self.cfg, 'sync')
+
         self.database.read_env('MBSLAVE_')
         self.musicbrainz.read_env('MBSLAVE_')
         self.tables.read_env('MBSLAVE_')
         self.schemas.read_env('MBSLAVE_')
+        self.sync.read_env('MBSLAVE_')
 
     def connect_db(self, set_search_path=False, superuser=False, no_db=False):
         db = psycopg2.connect(**self.database.create_psycopg2_kwargs(superuser=superuser, no_db=no_db))
@@ -543,7 +565,22 @@ def mbslave_sync_main(config: Config, args: argparse.Namespace) -> None:
         replication_seq += 1
         hook = hook_class(config, db, config)
         try:
-            with download_packet(base_url, token, replication_seq) as packet:
+            attempts = 0
+            max_attempts = 1 + config.sync.retry_count
+            while True:
+                attempts += 1
+                try:
+                    packet_ctx = download_packet(base_url, token, replication_seq)
+                    break
+                except PacketNotFoundError:
+                    raise  # 404s should not be retried
+                except Exception:
+                    if attempts >= max_attempts:
+                        raise
+                    logger.warning('Download failed (attempt %d/%d), retrying in %d seconds',
+                                   attempts, max_attempts, config.sync.retry_delay)
+                    time.sleep(config.sync.retry_delay)
+            with packet_ctx as packet:
                 try:
                     process_tar(packet, db, config, ignored_schemas, ignored_tables, schema_seq, replication_seq, hook)
                     PROCESSED_PACKETS.inc()
