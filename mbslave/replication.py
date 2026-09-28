@@ -642,14 +642,21 @@ def create_user(config: Config) -> None:
     db = connect_db(config, superuser=True, no_db=True)
     db.autocommit = True
     cursor = db.cursor()
-    cursor.execute(f"CREATE USER {config.database.user} PASSWORD %s", (config.database.password,))
+    cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (config.database.user,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"CREATE USER {config.database.user} PASSWORD %s", (config.database.password,))
+    else:
+        cursor.execute(f"ALTER USER {config.database.user} WITH PASSWORD %s", (config.database.password,))
 
 
 def create_database(config: Config) -> None:
     db = connect_db(config, superuser=True, no_db=True)
     db.autocommit = True
     cursor = db.cursor()
-    cursor.execute(f"CREATE DATABASE {config.database.name} WITH OWNER {config.database.user}")
+    cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (config.database.name,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"CREATE DATABASE {config.database.name} WITH OWNER {config.database.user}")
+    cursor.execute(f"GRANT ALL PRIVILEGES ON DATABASE {config.database.name} TO {config.database.user}")
     cursor.execute(f"ALTER DATABASE {config.database.name} SET timezone TO 'UTC'")
 
 
