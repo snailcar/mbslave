@@ -440,48 +440,46 @@ class PacketImporter(object):
             transaction = self._transactions.setdefault(xid, [])
             transaction.append((id, schema, table, type, keys, new_values))
             row = cursor.fetchone()
-        for xid in sorted(self._transactions.keys()):
-            transaction = self._transactions[xid]
-            # print ' - Running transaction', xid
-            # print 'BEGIN; --', xid
-            for id, schema, table, type, keys, values in sorted(transaction):
-                if schema == '<ignore>':
-                    continue
-                if schema in self._ignored_schemas:
-                    continue
-                if table in self._ignored_tables:
-                    continue
-                fulltable = fqn(schema, table)
-                if fulltable not in stats:
-                    stats[fulltable] = {'d': 0, 'u': 0, 'i': 0}
-                stats[fulltable][type] += 1
-                if type == 'd':
-                    sql = 'DELETE FROM %s' % (fulltable,)
-                    params = []
-                    self._hook.before_delete(table, keys)
-                elif type == 'u':
-                    sql_values = ', '.join('%s=%%s' % i for i in values)
-                    sql = 'UPDATE %s SET %s' % (fulltable, sql_values)
-                    params = list(values.values())
-                    self._hook.before_update(table, keys, values)
-                elif type == 'i':
-                    sql_columns = ', '.join(values.keys())
-                    sql_values = ', '.join(['%s'] * len(values))
-                    sql = 'INSERT INTO %s (%s) VALUES (%s)' % (fulltable, sql_columns, sql_values)
-                    params = list(values.values())
-                    self._hook.before_insert(table, values)
-                if type == 'd' or type == 'u':
-                    sql += ' WHERE ' + ' AND '.join('%s%s%%s' % (i, ' IS ' if keys[i] is None else '=') for i in keys.keys())
-                    params.extend(keys.values())
-                # print sql, params
-                cursor.execute(sql, params)
-                if type == 'd':
-                    self._hook.after_delete(table, keys)
-                elif type == 'u':
-                    self._hook.after_update(table, keys, values)
-                elif type == 'i':
-                    self._hook.after_insert(table, values)
-            # print 'COMMIT; --', xid
+        # Apply changes in seqid order, not grouped by xid: transactions can
+        # overlap, and the whole packet is applied in one DB transaction anyway.
+        changes = sorted(change for transaction in self._transactions.values() for change in transaction)
+        for id, schema, table, type, keys, values in changes:
+            if schema == '<ignore>':
+                continue
+            if schema in self._ignored_schemas:
+                continue
+            if table in self._ignored_tables:
+                continue
+            fulltable = fqn(schema, table)
+            if fulltable not in stats:
+                stats[fulltable] = {'d': 0, 'u': 0, 'i': 0}
+            stats[fulltable][type] += 1
+            if type == 'd':
+                sql = 'DELETE FROM %s' % (fulltable,)
+                params = []
+                self._hook.before_delete(table, keys)
+            elif type == 'u':
+                sql_values = ', '.join('%s=%%s' % i for i in values)
+                sql = 'UPDATE %s SET %s' % (fulltable, sql_values)
+                params = list(values.values())
+                self._hook.before_update(table, keys, values)
+            elif type == 'i':
+                sql_columns = ', '.join(values.keys())
+                sql_values = ', '.join(['%s'] * len(values))
+                sql = 'INSERT INTO %s (%s) VALUES (%s)' % (fulltable, sql_columns, sql_values)
+                params = list(values.values())
+                self._hook.before_insert(table, values)
+            if type == 'd' or type == 'u':
+                sql += ' WHERE ' + ' AND '.join('%s%s%%s' % (i, ' IS ' if keys[i] is None else '=') for i in keys.keys())
+                params.extend(keys.values())
+            # print sql, params
+            cursor.execute(sql, params)
+            if type == 'd':
+                self._hook.after_delete(table, keys)
+            elif type == 'u':
+                self._hook.after_update(table, keys, values)
+            elif type == 'i':
+                self._hook.after_insert(table, values)
         logger.info('Statistics:')
         for table in sorted(stats.keys()):
             logger.info('   * %-30s\t%d\t%d\t%d' % (table, stats[table]['i'], stats[table]['u'], stats[table]['d']))
